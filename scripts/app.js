@@ -358,6 +358,7 @@
   }
 
   var deferredPrompt;
+  var btnSave = document.getElementById('btnSave');
 
   window.addEventListener('beforeinstallprompt', function(e) {
     console.log('beforeinstallprompt Event fired');
@@ -365,11 +366,12 @@
 
     // Stash the event so it can be triggered later.
     deferredPrompt = e;
+    if(deferredPrompt) {
+      btnSave.classList.add('visible');
+    }
 
     return false;
   });
-
-  var btnSave = document.getElementById('btnSave');
 
   btnSave.addEventListener('click', function() {
     console.log(deferredPrompt)
