@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 (function() {
   'use strict';
 
@@ -24,9 +23,11 @@
     cardTemplate: document.querySelector('.cardTemplate'),
     container: document.querySelector('.main'),
     addDialog: document.querySelector('.dialog-container'),
-    daysOfWeek: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    logoutDialog: document.querySelector('.dialog-container--logout'),
+    daysOfWeek: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    // auth
+    auth: false
   };
-
 
   /*****************************************************************************
    *
@@ -54,7 +55,7 @@
       app.selectedCities = [];
     }
     app.getForecast(key, label);
-    app.selectedCities.push({key: key, label: label});
+    app.selectedCities.push({ key: key, label: label });
     app.saveSelectedCities();
     app.toggleAddDialog(false);
   });
@@ -64,6 +65,81 @@
     app.toggleAddDialog(false);
   });
 
+  document.getElementById('butLogin').addEventListener('click', function() {
+    app.login();
+  });
+
+  document.getElementById('butLogout').addEventListener('click', function() {
+    app.logout();
+  });
+
+  document.getElementById('butAckLogout').addEventListener('click', function() {
+    app.toggleLogoutDialog(false);
+  });
+
+  /*****************************************************************************
+   *
+   * Event listeners for messaging (window(s) <-> serviceworker)
+   *
+   ****************************************************************************/
+
+  navigator.serviceWorker.addEventListener('message', function(event) {
+    const { action } = event.data;
+
+    if (action === 'login') {
+      app.authenticate(true);
+    }
+
+    if (action === 'logout') {
+      app.authenticate(false);
+    }
+
+    if (action === 'save-selected-cities') {
+      const {data: json} = event.data
+      const cities = JSON.parse(json);
+      cities.forEach(({key, label}) => app.getForecast(key, label));
+    }
+  });
+
+  /*****************************************************************************
+   *
+   * Methods to sign in/out of app
+   *
+   ****************************************************************************/
+
+  app.authenticate = function(state) {
+    const loginBtn = document.querySelector('#butLogin');
+    const logoutBtn = document.querySelector('#butLogout');
+
+    if (state) {
+      loginBtn.classList.remove('visible');
+      logoutBtn.classList.add('visible');
+    } else {
+      loginBtn.classList.add('visible');
+      logoutBtn.classList.remove('visible');
+
+      // inform user on logout
+      app.toggleLogoutDialog(true);
+    }
+  };
+
+  app.login = function() {
+    const msg = { action: 'login' };
+    app.channel = new MessageChannel();
+    app.channel.port1.onmessage = function(event) {
+      console.log('Login acknowledged');
+    };
+    navigator.serviceWorker.controller.postMessage(msg, [app.channel.port2]);
+  };
+
+  app.logout = function() {
+    const msg = { action: 'logout' };
+    app.channel = new MessageChannel();
+    app.channel.port1.onmessage = function(event) {
+      console.log('Logout acknowledged');
+    };
+    navigator.serviceWorker.controller.postMessage(msg, [app.channel.port2]);
+  };
 
   /*****************************************************************************
    *
@@ -77,6 +153,15 @@
       app.addDialog.classList.add('dialog-container--visible');
     } else {
       app.addDialog.classList.remove('dialog-container--visible');
+    }
+  };
+
+  // Toggles the visibility of the logout dialog
+  app.toggleLogoutDialog = function(visible) {
+    if (visible) {
+      app.logoutDialog.classList.add('dialog-container--visible');
+    } else {
+      app.logoutDialog.classList.remove('dialog-container--visible');
     }
   };
 
@@ -116,16 +201,21 @@
 
     card.querySelector('.description').textContent = current.text;
     card.querySelector('.date').textContent = current.date;
-    card.querySelector('.current .icon').classList.add(app.getIconClass(current.code));
-    card.querySelector('.current .temperature .value').textContent =
-      Math.round(current.temp);
+    card
+      .querySelector('.current .icon')
+      .classList.add(app.getIconClass(current.code));
+    card.querySelector('.current .temperature .value').textContent = Math.round(
+      current.temp
+    );
     card.querySelector('.current .sunrise').textContent = sunrise;
     card.querySelector('.current .sunset').textContent = sunset;
     card.querySelector('.current .humidity').textContent =
       Math.round(humidity) + '%';
-    card.querySelector('.current .wind .value').textContent =
-      Math.round(wind.speed);
-    card.querySelector('.current .wind .direction').textContent = wind.direction;
+    card.querySelector('.current .wind .value').textContent = Math.round(
+      wind.speed
+    );
+    card.querySelector('.current .wind .direction').textContent =
+      wind.direction;
     var nextDays = card.querySelectorAll('.future .oneday');
     var today = new Date();
     today = today.getDay();
@@ -135,11 +225,15 @@
       if (daily && nextDay) {
         nextDay.querySelector('.date').textContent =
           app.daysOfWeek[(i + today) % 7];
-        nextDay.querySelector('.icon').classList.add(app.getIconClass(daily.code));
-        nextDay.querySelector('.temp-high .value').textContent =
-          Math.round(daily.high);
-        nextDay.querySelector('.temp-low .value').textContent =
-          Math.round(daily.low);
+        nextDay
+          .querySelector('.icon')
+          .classList.add(app.getIconClass(daily.code));
+        nextDay.querySelector('.temp-high .value').textContent = Math.round(
+          daily.high
+        );
+        nextDay.querySelector('.temp-low .value').textContent = Math.round(
+          daily.low
+        );
       }
     }
     if (app.isLoading) {
@@ -148,7 +242,6 @@
       app.isLoading = false;
     }
   };
-
 
   /*****************************************************************************
    *
@@ -166,8 +259,8 @@
    */
   app.getForecast = function(key, label) {
     var statement = 'select * from weather.forecast where woeid=' + key;
-    var url = 'https://query.yahooapis.com/v1/public/yql?format=json&q=' +
-        statement;
+    var url =
+      'https://query.yahooapis.com/v1/public/yql?format=json&q=' + statement;
     // TODO add cache logic here
     if ('caches' in window) {
       /*
@@ -221,6 +314,14 @@
   app.saveSelectedCities = function() {
     var selectedCities = JSON.stringify(app.selectedCities);
     localStorage.selectedCities = selectedCities;
+
+    // send message to sw
+    const msg = { action: 'save-selected-cities', data: selectedCities };
+    app.channel = new MessageChannel();
+    app.channel.port1.onmessage = function(event) {
+      console.log('SaveSelectedCities acknowledged');
+    };
+    navigator.serviceWorker.controller.postMessage(msg, [app.channel.port2]);
   };
 
   app.getIconClass = function(weatherCode) {
@@ -298,24 +399,24 @@
     created: '2016-07-22T01:00:00Z',
     channel: {
       astronomy: {
-        sunrise: "5:43 am",
-        sunset: "8:21 pm"
+        sunrise: '5:43 am',
+        sunset: '8:21 pm'
       },
       item: {
         condition: {
-          text: "Windy",
-          date: "Thu, 21 Jul 2016 09:00 PM EDT",
+          text: 'Windy',
+          date: 'Thu, 21 Jul 2016 09:00 PM EDT',
           temp: 56,
           code: 24
         },
         forecast: [
-          {code: 44, high: 86, low: 70},
-          {code: 44, high: 94, low: 73},
-          {code: 4, high: 95, low: 78},
-          {code: 24, high: 75, low: 89},
-          {code: 24, high: 89, low: 77},
-          {code: 44, high: 92, low: 79},
-          {code: 44, high: 89, low: 77}
+          { code: 44, high: 86, low: 70 },
+          { code: 44, high: 94, low: 73 },
+          { code: 4, high: 95, low: 78 },
+          { code: 24, high: 75, low: 89 },
+          { code: 24, high: 89, low: 77 },
+          { code: 44, high: 92, low: 79 },
+          { code: 44, high: 89, low: 77 }
         ]
       },
       atmosphere: {
@@ -345,16 +446,16 @@
      */
     app.updateForecastCard(initialWeatherForecast);
     app.selectedCities = [
-      {key: initialWeatherForecast.key, label: initialWeatherForecast.label}
+      { key: initialWeatherForecast.key, label: initialWeatherForecast.label }
     ];
     app.saveSelectedCities();
   }
 
   // TODO add service worker code here
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker
-             .register('./service-worker.js')
-             .then(function() { console.log('Service Worker Registered'); });
+    navigator.serviceWorker.register('./service-worker.js').then(function() {
+      console.log('Service Worker Registered');
+    });
   }
 
   var deferredPrompt;
@@ -366,7 +467,7 @@
 
     // Stash the event so it can be triggered later.
     deferredPrompt = e;
-    if(deferredPrompt) {
+    if (deferredPrompt) {
       btnSave.classList.add('visible');
     }
 
@@ -374,21 +475,19 @@
   });
 
   btnSave.addEventListener('click', function() {
-    console.log(deferredPrompt)
-    if(deferredPrompt !== undefined) {
+    console.log(deferredPrompt);
+    if (deferredPrompt !== undefined) {
       // The user has had a positive interaction with our app and Chrome
       // has tried to prompt previously, so let's show the prompt.
       deferredPrompt.prompt();
 
       // Follow what the user has done with the prompt.
       deferredPrompt.userChoice.then(function(choiceResult) {
-
         console.log(choiceResult.outcome);
 
-        if(choiceResult.outcome == 'dismissed') {
+        if (choiceResult.outcome == 'dismissed') {
           console.log('User cancelled home screen install');
-        }
-        else {
+        } else {
           console.log('User added to home screen');
         }
 
@@ -397,5 +496,4 @@
       });
     }
   });
-
 })();
